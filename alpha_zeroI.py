@@ -6,7 +6,7 @@ from mcts_alphaZero import MCTSPlayer
 from policy_value_net_numpy_pytorch import PolicyValueNetNumpy
 
 		
-model_file="C:/APP/AlphaZero/exe/exe01/best_policy_8_8_5_new.model"
+model_file="C:/APP/AlphaZero/exe/exe01/best_policy_10_10_5_new.model"
 
 try:
     policy_param = pickle.load(open(model_file, 'rb'))
@@ -47,7 +47,7 @@ def dealwithData(board_state):
 
 def run(states, sensible_moves, currentPlayer, lastMove):
     n = 5
-    width, height = 8, 8
+    width, height = 10, 10   #8, 8
     board = Board(width=width, height=height, n_in_row=n)
     board.init_board()
 

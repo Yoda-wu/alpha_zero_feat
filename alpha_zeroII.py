@@ -53,7 +53,7 @@ def dealwithData(board_state):
 
 def run(states, sensible_moves, currentPlayer, lastMove):
     n = 5
-    width, height = 8, 8
+    width, height = 10, 10 #8，8
     board = Board(width=width, height=height, n_in_row=n)
     board.init_board()
 

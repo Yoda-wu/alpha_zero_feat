@@ -25,35 +25,49 @@ logging.basicConfig(filename="loss_win.log",level=logging.DEBUG,format="%(messag
 
 class TrainPipeline():
     def __init__(self, init_model=None):
-        # params of the board and the game
-        self.board_width = 8  #6 #10
-        self.board_height = 8 #6 #10
+        # 棋盘和游戏参数
+        self.board_width = 10  #6 #10
+        self.board_height = 10 #6 #10
         self.n_in_row = 5     #4 #5
         self.board = Board(width=self.board_width, height=self.board_height, n_in_row=self.n_in_row)
         self.game = Game(self.board)
-        # training params 
-        self.learn_rate = 5e-3
-        self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
-        self.temp = 1.0 # the temperature param
-        self.n_playout = 400 # num of simulations for each move
+        # 训练参数
+        self.learn_rate = 5e-3 # 学习率
+        self.lr_multiplier = 1.0  # 学习率乘数，基于KL自适应调整学习率
+        self.temp = 1.0 # the temperature param 温度参数
+        self.n_playout = 800 # 每一步棋执行的MCTS模拟次数
         self.c_puct = 5
-        self.buffer_size = 10000
+        self.buffer_size = 10000 # 队列中最大元素个数
         self.batch_size = 512 # mini-batch size for training
-        self.data_buffer = deque(maxlen=self.buffer_size)        
+        self.data_buffer = deque(maxlen=self.buffer_size)       # 队列大小  
         self.play_batch_size = 1 
-        self.epochs = 5 # num of train_steps for each update
-        self.kl_targ = 0.025
-        self.check_freq = 50  #50
-        self.game_batch_num = 800
+        self.epochs = 5 # 每个更新的训练步骤数
+        self.kl_targ = 0.025 # KL目标
+        self.check_freq = 50  #检查频率，每50次对局就对当前模型进行评估
+        self.game_batch_num = 800 # 训练批量次数
         self.best_win_ratio = 0.0
-        # num of simulations used for the pure mcts, which is used as the opponent to evaluate the trained policy
+        # 用于纯MCTS的模拟数，用来作为对手，来评估训练的策略网络。
         self.pure_mcts_playout_num = 1000  
         if init_model:
-            # start training from an initial policy-value net
+            # 增量训练
+            # pickle.load(file)反序列化对象，将文件中的数据解析为一个Python对象
             policy_param = pickle.load(open(init_model, 'rb')) 
-            self.policy_value_net = PolicyValueNet(self.board_width, self.board_height, net_params = policy_param)
+             # print("policy_param:",policy_param)
+            selected_para = {
+                'conv1.weight': policy_param['conv1.weight'],
+                'conv1.bias': policy_param['conv1.bias'],
+                'conv2.weight': policy_param['conv2.weight'],
+                'conv2.bias': policy_param['conv2.bias'],
+                'conv3.weight': policy_param['conv3.weight'],
+                'conv3.bias': policy_param['conv3.bias'],
+                'act_conv1.weight': policy_param['act_conv1.weight'],
+                'act_conv1.bias': policy_param['act_conv1.bias'],
+                'val_conv1.weight': policy_param['val_conv1.weight'],
+                'val_conv1.bias': policy_param['val_conv1.bias'],
+            }
+            self.policy_value_net = PolicyValueNet(self.board_width, self.board_height, net_params = selected_para)
         else:
-            # start training from a new policy-value net
+            # 从0开始训练
             self.policy_value_net = PolicyValueNet(self.board_width, self.board_height) 
         self.mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn, c_puct=self.c_puct, n_playout=self.n_playout, is_selfplay=1)
 
@@ -129,23 +143,27 @@ class TrainPipeline():
         """run the training pipeline"""
         try:
             for i in range(self.game_batch_num):                
-                self.collect_selfplay_data(self.play_batch_size)
+                self.collect_selfplay_data(self.play_batch_size) # 自我对弈，训练一局就收集一局的数据
                 print("batch_i:{}, episode_len:{}".format(i+1, self.episode_len))
                 #logging.debug("batch_i:{}, episode_len:{}".format(i+1, self.episode_len))
                 if len(self.data_buffer) > self.batch_size:
+                    # 当队列数量大于mini—batch梯度下降法所需的最小批量数目时，我们随机从队列中挑选最小批量的数据进行更新
                     loss, entropy = self.policy_update()
                     logging.debug("batch_i {} loss {}".format(i+1, loss))
-                #check the performance of the current model锛宎nd save the model params
+                # 检查当前模型的性能并且保存模型参数
                 if (i+1) % self.check_freq == 0:
                     print("current self-play batch: {}".format(i+1))
                     win_ratio = self.policy_evaluate(batch= i+1)
                     net_params = self.policy_value_net.get_policy_param() # get model params
-                    pickle.dump(net_params, open('current_policy_8_8_5_new.model', 'wb'), pickle.HIGHEST_PROTOCOL) # save model param to file
-                    if win_ratio > self.best_win_ratio: 
+                    # 保存模型，序列化对象，并将结果数据流写入到文件对象中
+                    pickle.dump(net_params, open('current_policy_10_10_5_new.model', 'wb'), pickle.HIGHEST_PROTOCOL) # save model param to file
+                    if win_ratio > self.best_win_ratio:  # 胜率提高，更新参数
                         print("New best policy!!!!!!!!")
                         self.best_win_ratio = win_ratio
-                        pickle.dump(net_params, open('best_policy_8_8_5_new.model', 'wb'), pickle.HIGHEST_PROTOCOL) # update the best_policy
+                        # 更新模型
+                        pickle.dump(net_params, open('best_policy_10_10_5_new.model', 'wb'), pickle.HIGHEST_PROTOCOL) # update the best_policy
                         if self.best_win_ratio == 1.0 and self.pure_mcts_playout_num < 5000:
+                            # 胜率达到100%之后纯MCTS模拟次数增加到1000，胜率归0
                             self.pure_mcts_playout_num += 1000
                             self.best_win_ratio = 0.0
         except KeyboardInterrupt:
